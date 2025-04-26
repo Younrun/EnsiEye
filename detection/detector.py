@@ -4,56 +4,71 @@ import numpy as np
 from ultralytics import YOLO
 from utils.config import CLASS_NAMES, SIGN_CLASS_NAMES, REF_IMAGES_PATHS
 
+
 class Detector:
     def __init__(self):
-        # Load YOLO models
-        self.model1 = YOLO('best.pt')  # Vehicles & pedestrians
-        self.model2 = YOLO('sign-detect.pt')  # Traffic signs
+        # ── YOLO models ───────────────────────────────────────────────────────────
+        self.model1 = YOLO("best.pt")          # vehicles & pedestrians
+        self.model2 = YOLO("sign-detect.pt")   # traffic-signs
 
-        # Load MiDaS model
+        # ── MiDaS model ──────────────────────────────────────────────────────────
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-        self.midas.to(self.device)
-        self.midas.eval()
+        self.midas  = torch.hub.load("intel-isl/MiDaS", "DPT_Large",
+                                     trust_repo=True).to(self.device).eval()
 
-        # MiDaS transform
+        # pre-processing pipeline supplied by MiDaS
         self.transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
+    # ───────────────────────────── public helpers ──────────────────────────────
     def detect_objects(self, frame, conf=0.3):
+        """YOLO: vehicles & pedestrians."""
         return self.model1(frame, stream=True, conf=conf)
 
     def detect_signs(self, frame, conf=0.3):
+        """YOLO: traffic signs."""
         return self.model2(frame, stream=True, conf=conf)
 
     def get_object_width(self, image, object_class):
-        results = self.model1(image, conf=0.3)
-        for result in results:
+        """Width (px) of a class in a reference image (if needed)."""
+        for result in self.model1(image, conf=0.3):
             for box in result.boxes:
-                cls = int(box.cls[0])
-                if CLASS_NAMES[cls] == object_class:
-                    return int(box.xyxy[0][2] - box.xyxy[0][0])
+                if CLASS_NAMES[int(box.cls[0])] == object_class:
+                    x1, _, x2, _ = map(int, box.xyxy[0])
+                    return x2 - x1
         return None
 
+    # ─────────────────────────── depth-estimation  ─────────────────────────────
     def estimate_depth_map(self, frame):
-        """Estimate depth map using MiDaS"""
-        img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        input_tensor = self.transform(img_rgb).to(self.device)
+        """
+        Returns a (H,W) numpy array in the range [0,1]
+        where **0 is closest, 1 is far** (relative depth).
+        """
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # dpt_transform already: divides by 255, resizes, normalises,
+        # and ADDS the batch dimension -> shape (1,3,H,W)
+        input_batch = self.transform(rgb).to(self.device)
 
         with torch.no_grad():
-            prediction = self.midas(input_tensor.unsqueeze(0))
+            prediction = self.midas(input_batch)
             prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=img_rgb.shape[:2],
+                prediction.unsqueeze(1),           # add channel dim for resize
+                size=rgb.shape[:2],                # back to original H,W
                 mode="bicubic",
                 align_corners=False,
-            ).squeeze()
+            ).squeeze()                            # (H,W)
 
-        depth_map = prediction.cpu().numpy()
-        return depth_map
+        depth = prediction.cpu().numpy()
+        depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+
+        # Optional smoothing – uncomment for slightly less noisy maps
+        # depth = cv2.GaussianBlur(depth, (5, 5), 0)
+
+        return depth
 
     def get_depth_at(self, depth_map, x, y):
-        """Get depth value at pixel (x, y)"""
+        """Depth value (0–1) at pixel x,y, clamped to array bounds."""
         h, w = depth_map.shape
-        x = min(max(0, x), w - 1)
-        y = min(max(0, y), h - 1)
+        x = np.clip(x, 0, w - 1)
+        y = np.clip(y, 0, h - 1)
         return depth_map[y, x]

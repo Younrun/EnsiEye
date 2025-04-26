@@ -24,3 +24,4 @@ class CircularButton(Button, HoverBehavior):
 
     def on_leave(self):
         self.circle_color.rgba = (1, 1, 1, 1)
+        
