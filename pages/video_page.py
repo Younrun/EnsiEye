@@ -9,7 +9,7 @@ from kivy.graphics.texture import Texture
 
 from ui_components.circular_button import CircularButton
 from detection.detector      import Detector
-from detection.lane_detector import LaneDetector          # ← NEW
+from detection.lane_detector import LaneDetector
 from utils.config import CLASS_NAMES, SIGN_CLASS_NAMES, FONT, COLORS
 
 events = [1, 1, 1]              # [lane, distance, sign]
@@ -23,9 +23,9 @@ class VideoPage(Screen):
         self.frame_width, self.frame_height = 1920, 1080
         self.cap = None
         self.detector   = Detector()
-        self.lane_det   = LaneDetector()                 # ← NEW
+        self.lane_det   = LaneDetector()
 
-        # ------------- UI -------------------------------------------------
+        # ---------- UI ----------------------------------------------------
         lay = FloatLayout()
         lay.add_widget(KivyImage(source="assets/background.png",
                                  allow_stretch=True, keep_ratio=False))
@@ -45,27 +45,23 @@ class VideoPage(Screen):
 
     # ---------- life‑cycle ----------------------------------------------
     def on_enter(self):
-        self.cap = cv2.VideoCapture("lane5.mp4")
+        self.cap = cv2.VideoCapture("cross.mp4")
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self.frame_width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
         Clock.schedule_interval(self.update_frame, 1/30)
 
     def on_leave(self):
         Clock.unschedule(self.update_frame)
-        if self.cap: self.cap.release()
-
-    # ---------- helpers --------------------------------------------------
-    def _inside_roi(self, x, y):
-        h = self.frame_height
-        roi = np.array([[(200, h), (1100, h), (550, 250)]], np.int32)
-        return cv2.pointPolygonTest(roi[0], (x, y), False) >= 0
+        if self.cap:
+            self.cap.release()
 
     # ---------- main loop ------------------------------------------------
     def update_frame(self, _dt):
         ret, frame = self.cap.read()
-        if not ret: return
+        if not ret:
+            return
 
-        # 1. lane overlay (fast detector)
+        # 1. lane overlay
         if events[0]:
             frame = self.lane_det.process(frame)
 
@@ -92,26 +88,35 @@ class VideoPage(Screen):
     def _draw_objects(self, frame, depth_map):
         for res in self.detector.detect_objects(frame):
             for box in res.boxes:
-                x1,y1,x2,y2 = map(int, box.xyxy[0]); cx,cy = (x1+x2)//2, (y1+y2)//2
-                if not self._inside_roi(cx, cy): continue
-                lbl  = CLASS_NAMES[int(box.cls[0])]
-                d    = self.detector.get_depth_at(depth_map, cx, cy)
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2   # centre du box
+
+                lbl = CLASS_NAMES[int(box.cls[0])]
+                d   = self.detector.get_depth_at(depth_map, cx, cy)
                 print(f"[Depth] {lbl:<10} ({cx},{cy}) -> {d:.3f}")
-                if d < DEPTH_NEAR: colour, warn = (0,0,255), "Too close!"
-                elif d < DEPTH_MID: colour, warn = (0,255,255), None
-                else: colour, warn = (0,255,0), None
+
+                # couleur selon la profondeur
+                if d < DEPTH_NEAR:
+                    colour, warn = (0, 0, 255), "Too close!"
+                elif d < DEPTH_MID:
+                    colour, warn = (0, 255, 255), None
+                else:
+                    colour, warn = (0, 255, 0), None
+
                 if warn:
-                    cv2.putText(frame, warn, (x1,y1-25), FONT,.7,colour,2)
-                cv2.rectangle(frame,(x1,y1),(x2,y2),colour,2)
-                cv2.putText(frame,f"{lbl} {d:.2f}",(x1,y1-5),FONT,.6,colour,2)
+                    cv2.putText(frame, warn, (x1, y1 - 25), FONT, .7, colour, 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+                cv2.putText(frame, f"{lbl} {d:.2f}", (x1, y1 - 5), FONT, .6, colour, 2)
 
     def _draw_signs(self, frame, depth_map):
         for res in self.detector.detect_signs(frame):
             for box in res.boxes:
-                x1,y1,x2,y2 = map(int, box.xyxy[0]); cx,cy=(x1+x2)//2,(y1+y2)//2
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+
                 sign = SIGN_CLASS_NAMES[int(box.cls[0])]
-                d = self.detector.get_depth_at(depth_map, cx, cy)
+                d    = self.detector.get_depth_at(depth_map, cx, cy)
                 print(f"[Depth] Sign {sign:<8} -> {d:.3f}")
-                if not self._inside_roi(cx, cy): continue
-                cv2.rectangle(frame,(x1,y1),(x2,y2),COLORS["red"],2)
-                cv2.putText(frame, sign, (x1,y1-10), FONT,.6,COLORS["red"],2)
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2), COLORS["red"], 2)
+                cv2.putText(frame, sign, (x1, y1 - 10), FONT, .6, COLORS["red"], 2)
