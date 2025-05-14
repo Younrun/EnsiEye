@@ -1,0 +1,8 @@
+path: .
+train: train
+val: valid
+test: test
+
+nc: 5
+names: ['Car', 'Cyclist', 'Motorcycle', 'Pedestrian', 'Truck']
+

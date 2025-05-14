@@ -45,7 +45,7 @@ class VideoPage(Screen):
 
     # ---------- life‑cycle ----------------------------------------------
     def on_enter(self):
-        self.cap = cv2.VideoCapture("cross.mp4")
+        self.cap = cv2.VideoCapture("istockphoto-1313165564-640_adpp_is.mp4")
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self.frame_width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
         Clock.schedule_interval(self.update_frame, 1/30)
